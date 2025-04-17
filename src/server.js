@@ -9,7 +9,7 @@ app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
 app.use(cors({
-  origin: 'http://192.168.4.58:3000',
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
 }))
 
