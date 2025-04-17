@@ -11,7 +11,6 @@ app.use(cors());
 app.use(cors({
   origin: 'http://192.168.4.58:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
 // backend routes
