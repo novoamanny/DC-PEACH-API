@@ -13,23 +13,33 @@ const axiosConfig = {
     }
 }
 
-
 router.get('/', async (req, res) => {
     try {
         const response = await axios.get(`http://localhost:8000/api/dc/peach/sync`, axiosConfig);
         const members = db.collection('members');
+        const customers = response.data;
 
-        for (const customer of response.data) {
-            const userRef = members.doc(`DC-${customer.customerId}`);
-            const userDoc = await userRef.get();
+        // Split into chunks of 500 for Firestore limits
+        const chunkSize = 500;
+        for (let i = 0; i < customers.length; i += chunkSize) {
+            const batch = db.batch();
+            const chunk = customers.slice(i, i + chunkSize);
 
-            if (userDoc.exists) {
-                await userRef.set(customer, { merge: true });
-                console.log(`🔄 Updated customer ${customer.customerId}`);
-            } else {
-                await userRef.set(customer);
-                console.log(`🆕 Created customer ${customer.customerId}`);
+            for (const customer of chunk) {
+                const userRef = members.doc(`DC-${customer.customerId}`);
+                const userDoc = await userRef.get();
+
+                if (userDoc.exists) {
+                    batch.set(userRef, customer, { merge: true });
+                    console.log(`🔄 Batched update for customer ${customer.customerId}`);
+                } else {
+                    batch.set(userRef, customer);
+                    console.log(`🆕 Batched create for customer ${customer.customerId}`);
+                }
             }
+
+            await batch.commit();
+            console.log(`✅ Batch ${i / chunkSize + 1} committed.`);
         }
 
         res.status(200).send("✅ Members processed successfully.");
@@ -38,6 +48,7 @@ router.get('/', async (req, res) => {
         res.status(500).send("Internal server error.");
     }
 });
+
 
 
 module.exports = router;
