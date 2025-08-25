@@ -1,54 +1,105 @@
-const express = require('express');
-const db = require('../../config/db'); // Firestore database connection
+const express = require("express");
+const db = require("../../config/db");
+const axios = require("axios");
+
 const router = express.Router();
-const axios = require('axios');  // Assuming you're using axios for HTTP requests
 
-// Shopify Store and Access Token
-const SHOPIFY_STORE = "www.dreamcatchers.com";
-const SHOPIFY_ACCESS_TOKEN = "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";  // Your token
+const PAGE_SIZE = 250; // Fetch 250 customers per API call
+const CHUNK_SIZE = 50; // Firestore batch chunk size to avoid payload limits
+const API_URL = "http://localhost:8000/api/dc/membership/all-customers";
 
-const axiosConfig = {
-    headers: {
-        'Content-Type': 'application/json'
-    }
+// Sleep helper
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-router.get('/', async (req, res) => {
-    try {
-        const response = await axios.get(`http://localhost:8000/api/dc/peach/sync`, axiosConfig);
-        const members = db.collection('members');
-        const customers = response.data;
+// Retry Firestore batch commit
+async function commitWithRetry(batch, attempt = 1) {
+  try {
+    await batch.commit();
+  } catch (err) {
+    if (err.code === 4 && attempt <= 5) { // RESOURCE_EXHAUSTED
+      const waitTime = attempt * 2000;
+      console.warn(`⏳ Firestore quota hit, retrying in ${waitTime}ms (attempt ${attempt})`);
+      await sleep(waitTime);
+      return commitWithRetry(batch, attempt + 1);
+    }
+    throw err;
+  }
+}
 
-        // Split into chunks of 500 for Firestore limits
-        const chunkSize = 500;
-        for (let i = 0; i < customers.length; i += chunkSize) {
-            const batch = db.batch();
-            const chunk = customers.slice(i, i + chunkSize);
+// Retry axios fetch
+async function fetchWithRetry(params, attempt = 1) {
+  try {
+    return await axios.get(API_URL, { params });
+  } catch (err) {
+    if (attempt <= 5) {
+      const wait = attempt * 2000;
+      console.warn(`⚠️ Axios failed, retrying in ${wait}ms (attempt ${attempt})`);
+      await sleep(wait);
+      return fetchWithRetry(params, attempt + 1);
+    }
+    throw err;
+  }
+}
 
-            for (const customer of chunk) {
-                const userRef = members.doc(`DC-${customer.customerId}`);
-                const userDoc = await userRef.get();
+// Main sync route
+router.get("/", async (req, res) => {
+  try {
+    const members = db.collection("members");
+    let lastId = null;
+    let page = 1;
+    let totalProcessed = 0;
 
-                if (userDoc.exists) {
-                    batch.set(userRef, customer, { merge: true });
-                    console.log(`🔄 Batched update for customer ${customer.customerId}`);
-                } else {
-                    batch.set(userRef, customer);
-                    console.log(`🆕 Batched create for customer ${customer.customerId}`);
-                }
-            }
+    while (true) {
+      // Fetch a page from /all-customers
+      const { data: customers } = await fetchWithRetry({
+        limit: PAGE_SIZE,
+        last: lastId
+      });
 
-            await batch.commit();
-            console.log(`✅ Batch ${i / chunkSize + 1} committed.`);
+      if (!customers.length) break;
+
+      // Split into smaller chunks to avoid Firestore payload limit
+      for (let i = 0; i < customers.length; i += CHUNK_SIZE) {
+        const chunk = customers.slice(i, i + CHUNK_SIZE);
+        const batch = db.batch();
+
+        for (const customer of chunk) {
+          const ref = members.doc(`DC-${customer.customerId}`);
+          batch.set(ref, {
+            customerId: customer.customerId,
+            firstName: customer.firstName,
+            lastName: customer.lastName,
+            email: customer.email,
+            phone: customer.phone,
+            totalSpent: customer.totalSpent,
+            ordersCount: customer.ordersCount,
+            acceptsMarketing: customer.acceptsMarketing,
+            tags: customer.tags || [],
+            defaultAddress: customer.defaultAddress || {},
+            addresses: customer.addresses || [],
+            lastOrder: customer.lastOrder || {},
+            loyalty: customer.loyalty || {}
+          }, { merge: true });
         }
 
-        res.status(200).send("✅ Members processed successfully.");
-    } catch (error) {
-        console.error("❌ Error processing Members...", error);
-        res.status(500).send("Internal server error.");
+        await commitWithRetry(batch);
+        totalProcessed += chunk.length;
+      }
+
+      console.log(`📦 Page ${page} committed with ${customers.length} docs. Total so far: ${totalProcessed}`);
+
+      lastId = customers[customers.length - 1].id;
+      page++;
+      await sleep(1500); // small backoff
     }
+
+    res.status(200).send(`✅ Sync finished. Total customers synced: ${totalProcessed}`);
+  } catch (error) {
+    console.error("❌ Error during sync:", error);
+    res.status(500).send("Internal server error.");
+  }
 });
-
-
 
 module.exports = router;

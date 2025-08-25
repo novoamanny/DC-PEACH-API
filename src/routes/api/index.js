@@ -1,34 +1,61 @@
 const express = require('express');
 const db = require('../../config/db'); // Firestore database connection
 const router = express.Router();
-const axios = require('axios');  // Assuming you're using axios for HTTP requests
 
-// Shopify Store and Access Token
-const SHOPIFY_STORE = "www.dreamcatchers.com";
-const SHOPIFY_ACCESS_TOKEN = "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";  // Your token
+// In-memory cache
+let cachedLoyaltyCustomers = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const PAGE_SIZE = 500; // Firestore batch size
 
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
     try {
-        const customersRef = db.collection('members');
-        const snapshot = await customersRef.get();
+        const now = Date.now();
 
+        // Return cached data if valid
+        if (cachedLoyaltyCustomers && now - cacheTimestamp < CACHE_TTL) {
+            console.log("⚡ Returning loyalty customers from in-memory cache");
+            return res.status(200).json(cachedLoyaltyCustomers);
+        }
+
+        // Fetch fresh data from Firestore in pages
         const loyaltyCustomers = [];
+        let lastDoc = null;
 
-        snapshot.forEach(doc => {
-            const data = doc.data();
+        while (true) {
+            let query = db.collection("members")
+                          .where("loyalty.stamps", ">", 0)
+                          .orderBy("loyalty.stamps", "desc")
+                          .limit(PAGE_SIZE);
 
-            loyaltyCustomers.push({
-                id: doc.id,
-                ...data
+            if (lastDoc) query = query.startAfter(lastDoc);
+
+            const snapshot = await query.get();
+            if (snapshot.empty) break;
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                loyaltyCustomers.push({
+                    id: doc.id,
+                    ...data
+                });
             });
-        });
 
-        loyaltyCustomers.sort((a, b) => b.loyalty.stamps - a.loyalty.stamps);
+            lastDoc = snapshot.docs[snapshot.docs.length - 1];
 
-        res.status(200).json(loyaltyCustomers); // Send only loyalty customers
+            if (snapshot.size < PAGE_SIZE) break; // last page
+        }
+
+        // Update in-memory cache
+        cachedLoyaltyCustomers = loyaltyCustomers;
+        cacheTimestamp = now;
+
+        console.log(`⚡ Fetched ${loyaltyCustomers.length} loyalty customers from Firestore and cached`);
+        res.status(200).json(loyaltyCustomers);
+
     } catch (error) {
-        console.error('Error fetching loyalty customers:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error("❌ Error fetching loyalty customers:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 
