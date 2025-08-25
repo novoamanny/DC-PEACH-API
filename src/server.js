@@ -16,6 +16,7 @@ app.use(cors({
 // backend routes
 app.use('/api', require('./routes/api/'));
 app.use('/api/sync', require('./routes/api/sync'));
+app.use('/api/auth', require('./routes/api/auth'));
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on http://0.0.0.0:${PORT}`);
