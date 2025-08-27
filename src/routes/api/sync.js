@@ -6,7 +6,7 @@ const router = express.Router();
 
 const PAGE_SIZE = 250; // Fetch 250 customers per API call
 const CHUNK_SIZE = 50; // Firestore batch chunk size to avoid payload limits
-const API_URL = "http://localhost:8000/api/dc/membership/all-customers";
+const API_URL = "https://dc-api-1m1j.onrender.com/api/dc/membership/all-customers";
 
 // Sleep helper
 function sleep(ms) {
