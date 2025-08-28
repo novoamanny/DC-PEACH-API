@@ -88,8 +88,6 @@ router.get("/", async (req, res) => {
     res.status(500).send("Internal server error.");
   }
 });
-
-// --- Update stamps locally AND call main API ---
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
     const { updates } = req.body; // [{ customerId, additionalStamps }]
@@ -120,12 +118,16 @@ router.post("/update-stamps-for-members", async (req, res) => {
 
       await memberRef.set(memberData, { merge: true });
 
-      // --- Call main API safely ---
+      // --- Call main API safely, treat response as text ---
       try {
-        const response = await axios.post(MAIN_API_URL, { customerId, additionalStamps }, {
-          headers: { "Content-Type": "application/json" },
-          validateStatus: () => true
-        });
+        const response = await axios.post(MAIN_API_URL, 
+          { customerId, additionalStamps }, 
+          { 
+            headers: { "Content-Type": "application/json" },
+            responseType: "text",        // <-- force text
+            validateStatus: () => true
+          }
+        );
 
         if (response.status !== 200) {
           console.warn(`⚠️ Main API returned ${response.status} for ${customerId}:`, response.data);
