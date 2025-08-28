@@ -116,7 +116,7 @@ router.post("/update-stamps-for-members", async (req, res) => {
       // --- Call loyalty API internally ---
       try {
         // Replace with your real base URL if needed
-        const loyaltyUrl = "https://dc-api-1m1j.onrender.com/api/sync/loyalty/update-stamps";
+        const loyaltyUrl = MAIN_API_URL;
         const loyaltyRes = await fetch(loyaltyUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
