@@ -88,11 +88,10 @@ router.get("/", async (req, res) => {
     res.status(500).send("Internal server error.");
   }
 });
-
-// --- Update stamps locally ONLY ---
+// --- Update stamps directly ---
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
-    const { updates } = req.body; // [{ customerId, additionalStamps }]
+    const { updates } = req.body; // [{ customerId, newStamps }]
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: "Array of updates required" });
     }
@@ -100,8 +99,8 @@ router.post("/update-stamps-for-members", async (req, res) => {
     let updatedCount = 0;
 
     for (const update of updates) {
-      const { customerId, additionalStamps } = update;
-      if (!customerId || typeof additionalStamps !== "number") continue;
+      const { customerId, newStamps } = update;
+      if (!customerId || typeof newStamps !== "number") continue;
 
       const memberRef = db.collection("members").doc(`DC-${customerId}`);
       const memberDoc = await memberRef.get();
@@ -110,12 +109,8 @@ router.post("/update-stamps-for-members", async (req, res) => {
       const memberData = memberDoc.data();
       memberData.loyalty = memberData.loyalty || { stamps: 0, count: 0 };
 
-      const totalCount = (memberData.loyalty.count || 0) + additionalStamps;
-      const newStamps = Math.floor(totalCount / 5);
-      const newRemainder = totalCount % 5;
-
-      memberData.loyalty.stamps += newStamps;
-      memberData.loyalty.count = newRemainder;
+      // Directly set the stamps
+      memberData.loyalty.stamps = newStamps;
       memberData.updatedAt = new Date();
 
       await memberRef.set(memberData, { merge: true });
@@ -130,5 +125,6 @@ router.post("/update-stamps-for-members", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 module.exports = router;
