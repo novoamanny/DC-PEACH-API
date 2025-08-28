@@ -90,8 +90,8 @@ router.get("/", async (req, res) => {
 });
 
 
+// --- Update stamps directly ---
 router.post("/update-stamps-for-members", async (req, res) => {
-  console.log("Received request to update stamps for members");
   try {
     const { updates } = req.body; // [{ customerId, newStamps }]
     if (!Array.isArray(updates) || updates.length === 0) {
@@ -104,24 +104,19 @@ router.post("/update-stamps-for-members", async (req, res) => {
       const { customerId, newStamps } = update;
       if (!customerId) continue;
 
-      const memberRef = db.collection("members").doc(`DC-${customerId}`);
-      const memberDoc = await memberRef.get();
+      // Use the ID as-is. Front-end should send the exact doc ID.
+      const memberRef = db.collection("members").doc(customerId);
 
-      // Get existing data or create empty
-      const memberData = memberDoc.exists ? memberDoc.data() : {};
+      // Overwrite loyalty.stamps directly
+      await memberRef.set({
+        loyalty: { stamps: newStamps },
+        updatedAt: new Date()
+      }, { merge: true });
 
-      // Preserve other loyalty fields, overwrite stamps
-      memberData.loyalty = memberData.loyalty || {};
-      memberData.loyalty.stamps = newStamps;
-      memberData.updatedAt = new Date();
+      console.log(`✅ Updated member ${customerId}:`, { stamps: newStamps });
 
-      // Log what we’re writing
-      console.log(`Updating member DC-${customerId}:`, memberData);
-
-      await memberRef.set(memberData, { merge: true });
       updatedCount++;
-
-      // Small throttle
+      // Throttle slightly to prevent Firestore write issues
       await new Promise(r => setTimeout(r, 50));
     }
 
@@ -131,6 +126,7 @@ router.post("/update-stamps-for-members", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 
 
