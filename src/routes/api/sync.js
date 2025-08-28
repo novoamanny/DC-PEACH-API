@@ -89,7 +89,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-
+// --- Update stamps locally ONLY ---
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
     const { updates } = req.body; // [{ customerId, additionalStamps }]
@@ -103,7 +103,6 @@ router.post("/update-stamps-for-members", async (req, res) => {
       const { customerId, additionalStamps } = update;
       if (!customerId || typeof additionalStamps !== "number") continue;
 
-      // --- Update members collection ---
       const memberRef = db.collection("members").doc(`DC-${customerId}`);
       const memberDoc = await memberRef.get();
       if (!memberDoc.exists) continue;
@@ -121,31 +120,15 @@ router.post("/update-stamps-for-members", async (req, res) => {
 
       await memberRef.set(memberData, { merge: true });
 
-      // --- Call main API for same update ---
-      try {
-        const response = await axios.post(MAIN_API_URL, { customerId, additionalStamps }, {
-          headers: { "Content-Type": "application/json" },
-          responseType: "text",
-          validateStatus: () => true
-        });
-
-        if (response.status !== 200) {
-          console.warn(`⚠️ Main API returned ${response.status} for ${customerId}:`, response.data);
-        }
-      } catch (err) {
-        console.error(`❌ Failed main API update for ${customerId}:`, err.message);
-      }
-
       updatedCount++;
-      await sleep(100); // throttle
+      await sleep(50); // small throttle
     }
 
     res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
   } catch (error) {
-    console.error("❌ Error in batch update:", error);
+    console.error("❌ Error updating stamps:", error);
     res.status(500).json({ error: "Internal server error." });
   }
 });
-
 
 module.exports = router;
