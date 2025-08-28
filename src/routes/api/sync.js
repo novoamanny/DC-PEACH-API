@@ -139,18 +139,23 @@ router.post("/update-stamps-for-members", async (req, res) => {
       await memberRef.set(memberData, { merge: true });
 
       // --- 2️⃣ Call main API to update same customer ---
+      // --- 2️⃣ Call main API to update same customer ---
       try {
-        await axios.post(MAIN_API_URL, {
+        const response = await axios.post(MAIN_API_URL, {
           customerId,
           additionalStamps
+        }, {
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: () => true // don't throw on non-200
         });
+
+        if (response.status !== 200) {
+          console.warn(`⚠️ Main API returned status ${response.status} for ${customerId}:`, response.data);
+        }
       } catch (err) {
         console.error(`❌ Failed to update main API for ${customerId}:`, err.message);
       }
 
-      updatedCount++;
-      await sleep(100); // throttle requests
-    }
 
     res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
   } catch (error) {
