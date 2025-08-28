@@ -91,6 +91,7 @@ router.get("/", async (req, res) => {
 
 
 router.post("/update-stamps-for-members", async (req, res) => {
+  console.log("Received request to update stamps for members");
   try {
     const { updates } = req.body; // [{ customerId, newStamps }]
     if (!Array.isArray(updates) || updates.length === 0) {
