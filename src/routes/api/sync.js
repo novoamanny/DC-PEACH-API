@@ -88,6 +88,8 @@ router.get("/", async (req, res) => {
     res.status(500).send("Internal server error.");
   }
 });
+
+
 // --- Update stamps directly ---
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
@@ -96,30 +98,24 @@ router.post("/update-stamps-for-members", async (req, res) => {
       return res.status(400).json({ error: "Array of updates required" });
     }
 
-    let updatedCount = 0;
-
+    // Loop through all updates
     for (const update of updates) {
       const { customerId, newStamps } = update;
-      if (!customerId) continue; // only skip if no customerId
+      if (!customerId) continue;
 
       const memberRef = db.collection("members").doc(`DC-${customerId}`);
-      const memberDoc = await memberRef.get();
 
-      // Get existing data or create empty
-      const memberData = memberDoc.exists ? memberDoc.data() : {};
+      // Overwrite loyalty.stamps directly
+      await memberRef.set({
+        loyalty: { stamps: newStamps },
+        updatedAt: new Date()
+      }, { merge: true });
 
-      // Always overwrite stamps
-      memberData.loyalty = memberData.loyalty || {};
-      memberData.loyalty.stamps = newStamps;
-      memberData.updatedAt = new Date();
-
-      await memberRef.set(memberData, { merge: true });
-      updatedCount++;
-
-      await new Promise(r => setTimeout(r, 50)); // small throttle
+      // Throttle to prevent Firestore errors
+      await new Promise(r => setTimeout(r, 50));
     }
 
-    res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
+    res.status(200).json({ message: "✅ Stamps updated successfully." });
   } catch (error) {
     console.error("❌ Error updating stamps:", error);
     res.status(500).json({ error: "Internal server error." });
