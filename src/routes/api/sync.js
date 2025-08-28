@@ -4,48 +4,40 @@ const axios = require("axios");
 
 const router = express.Router();
 
-const PAGE_SIZE = 250; // Fetch 250 customers per API call
-const CHUNK_SIZE = 50; // Firestore batch chunk size to avoid payload limits
+const PAGE_SIZE = 250;
+const CHUNK_SIZE = 50;
 const API_URL = "https://dc-api-1m1j.onrender.com/api/dc/membership/all-customers";
 const MAIN_API_URL = "https://dc-api-1m1j.onrender.com/api/dc/membership/loyalty/update-stamps";
 
-
-// Sleep helper
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Retry Firestore batch commit
 async function commitWithRetry(batch, attempt = 1) {
   try {
     await batch.commit();
   } catch (err) {
     if (err.code === 4 && attempt <= 5) { // RESOURCE_EXHAUSTED
-      const waitTime = attempt * 2000;
-      console.warn(`⏳ Firestore quota hit, retrying in ${waitTime}ms (attempt ${attempt})`);
-      await sleep(waitTime);
+      await sleep(attempt * 2000);
       return commitWithRetry(batch, attempt + 1);
     }
     throw err;
   }
 }
 
-// Retry axios fetch
 async function fetchWithRetry(params, attempt = 1) {
   try {
     return await axios.get(API_URL, { params });
   } catch (err) {
     if (attempt <= 5) {
-      const wait = attempt * 2000;
-      console.warn(`⚠️ Axios failed, retrying in ${wait}ms (attempt ${attempt})`);
-      await sleep(wait);
+      await sleep(attempt * 2000);
       return fetchWithRetry(params, attempt + 1);
     }
     throw err;
   }
 }
 
-// Main sync route
+// --- Main sync route (unchanged) ---
 router.get("/", async (req, res) => {
   try {
     const members = db.collection("members");
@@ -54,15 +46,9 @@ router.get("/", async (req, res) => {
     let totalProcessed = 0;
 
     while (true) {
-      // Fetch a page from /all-customers
-      const { data: customers } = await fetchWithRetry({
-        limit: PAGE_SIZE,
-        last: lastId
-      });
-
+      const { data: customers } = await fetchWithRetry({ limit: PAGE_SIZE, last: lastId });
       if (!customers.length) break;
 
-      // Split into smaller chunks to avoid Firestore payload limit
       for (let i = 0; i < customers.length; i += CHUNK_SIZE) {
         const chunk = customers.slice(i, i + CHUNK_SIZE);
         const batch = db.batch();
@@ -91,10 +77,9 @@ router.get("/", async (req, res) => {
       }
 
       console.log(`📦 Page ${page} committed with ${customers.length} docs. Total so far: ${totalProcessed}`);
-
       lastId = customers[customers.length - 1].id;
       page++;
-      await sleep(1500); // small backoff
+      await sleep(1500);
     }
 
     res.status(200).send(`✅ Sync finished. Total customers synced: ${totalProcessed}`);
@@ -104,11 +89,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-
-// Route to update stamps locally and on main API
+// --- Update stamps locally AND call main API ---
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
-    const { updates } = req.body; // Expect an array: [{ customerId, additionalStamps }]
+    const { updates } = req.body; // [{ customerId, additionalStamps }]
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: "Array of updates required" });
     }
@@ -119,7 +103,6 @@ router.post("/update-stamps-for-members", async (req, res) => {
       const { customerId, additionalStamps } = update;
       if (!customerId || typeof additionalStamps !== "number") continue;
 
-      // --- 1️⃣ Update initiative API member document ---
       const memberRef = db.collection("members").doc(`DC-${customerId}`);
       const memberDoc = await memberRef.get();
       if (!memberDoc.exists) continue;
@@ -137,25 +120,22 @@ router.post("/update-stamps-for-members", async (req, res) => {
 
       await memberRef.set(memberData, { merge: true });
 
-      // --- 2️⃣ Call main API to update same customer ---
+      // --- Call main API safely ---
       try {
-        const response = await axios.post(MAIN_API_URL, {
-          customerId,
-          additionalStamps
-        }, {
-          headers: { 'Content-Type': 'application/json' },
-          validateStatus: () => true // don't throw on non-200
+        const response = await axios.post(MAIN_API_URL, { customerId, additionalStamps }, {
+          headers: { "Content-Type": "application/json" },
+          validateStatus: () => true
         });
 
         if (response.status !== 200) {
-          console.warn(`⚠️ Main API returned status ${response.status} for ${customerId}:`, response.data);
+          console.warn(`⚠️ Main API returned ${response.status} for ${customerId}:`, response.data);
         }
       } catch (err) {
         console.error(`❌ Failed to update main API for ${customerId}:`, err.message);
       }
 
       updatedCount++;
-      await sleep(100); // throttle requests
+      await sleep(100); // throttle
     }
 
     res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
@@ -164,6 +144,5 @@ router.post("/update-stamps-for-members", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
-
 
 module.exports = router;
