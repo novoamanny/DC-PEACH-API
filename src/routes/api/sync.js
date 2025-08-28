@@ -100,23 +100,23 @@ router.post("/update-stamps-for-members", async (req, res) => {
 
     for (const update of updates) {
       const { customerId, newStamps } = update;
-      if (!customerId || typeof newStamps !== "number") continue;
+      if (!customerId) continue; // only skip if no customerId
 
       const memberRef = db.collection("members").doc(`DC-${customerId}`);
       const memberDoc = await memberRef.get();
-      if (!memberDoc.exists) continue;
 
-      const memberData = memberDoc.data();
-      memberData.loyalty = memberData.loyalty || { stamps: 0, count: 0 };
+      // Get existing data or create empty
+      const memberData = memberDoc.exists ? memberDoc.data() : {};
 
-      // Directly set the stamps
+      // Always overwrite stamps
+      memberData.loyalty = memberData.loyalty || {};
       memberData.loyalty.stamps = newStamps;
       memberData.updatedAt = new Date();
 
       await memberRef.set(memberData, { merge: true });
-
       updatedCount++;
-      await sleep(50); // small throttle
+
+      await new Promise(r => setTimeout(r, 50)); // small throttle
     }
 
     res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
@@ -125,6 +125,7 @@ router.post("/update-stamps-for-members", async (req, res) => {
     res.status(500).json({ error: "Internal server error." });
   }
 });
+
 
 
 module.exports = router;
