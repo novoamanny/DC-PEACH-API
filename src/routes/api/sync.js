@@ -105,7 +105,6 @@ router.get("/", async (req, res) => {
 });
 
 
-
 // Route to update stamps locally and on main API
 router.post("/update-stamps-for-members", async (req, res) => {
   try {
@@ -139,7 +138,6 @@ router.post("/update-stamps-for-members", async (req, res) => {
       await memberRef.set(memberData, { merge: true });
 
       // --- 2️⃣ Call main API to update same customer ---
-      // --- 2️⃣ Call main API to update same customer ---
       try {
         const response = await axios.post(MAIN_API_URL, {
           customerId,
@@ -156,6 +154,9 @@ router.post("/update-stamps-for-members", async (req, res) => {
         console.error(`❌ Failed to update main API for ${customerId}:`, err.message);
       }
 
+      updatedCount++;
+      await sleep(100); // throttle requests
+    }
 
     res.status(200).json({ message: `✅ Updated stamps for ${updatedCount} members.` });
   } catch (error) {
